@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "nmstate-mcp": {
+      "command": "python",
+      "args": [
+        "main.py"
+      ]
+    }
+  }
+}
