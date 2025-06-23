@@ -2,7 +2,7 @@
 
 ## About the Project
 
-A mcp server implementation that works with the MCP SuperAssistant Chrome browser extension to enable any web based LLM chat API to call local or remote tools using MCP.
+A mcp server implementation that works with the MCP SuperAssistant Chrome browser extension to enable any web based LLM chat API to call local nmstate tools using MCP.
 
 ### Prerequisites
 
