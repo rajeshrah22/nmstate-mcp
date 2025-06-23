@@ -32,6 +32,7 @@ uv sync
 ```
 
 ### Run the proxy server
+This will also run the nmstate mcp server implementation. See `mcpconfig.json`.
 
 ```bash
 npx @srbhptl39/mcp-superassistant-proxy@latest --config ./mcpconfig.json
