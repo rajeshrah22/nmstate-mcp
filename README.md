@@ -21,11 +21,21 @@ Instructions on how to set up and run your project locally.
 sudo dnf install python3-libnmstate uv
 ```
 
+### Create venv with system site packages to use libnmstate
+
+```bash
+uv venv --system-site-packages .venv
+```
+
 ```bash
 source .venv/bin/activate
 ```
 
 ### Download dependencies
+
+```bash
+uv venv --system-site-packages .venv
+```
 
 ```bash
 uv sync
