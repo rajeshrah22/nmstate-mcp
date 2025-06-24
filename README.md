@@ -34,14 +34,11 @@ source .venv/bin/activate
 ### Download dependencies
 
 ```bash
-uv venv --system-site-packages .venv
-```
-
-```bash
 uv sync
 ```
 
 ### Run the proxy server
+
 This will also run the nmstate mcp server implementation. See `mcpconfig.json`.
 
 ```bash
