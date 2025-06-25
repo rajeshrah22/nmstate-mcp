@@ -11,20 +11,16 @@ mcp = FastMCP("Nmstate Network Manager")
 @mcp.tool()
 def nmstatectl_show(
     ifname: str | None = None,
-    json_format: bool = False,
     kernel_only: bool = False,
     running_config: bool = False,
-    show_secrets: bool = False,
 ) -> str:
     """
-    Show network state using libnmstate.
+    Show network state using nmstatectl show.
 
     Args:
         ifname: Show specific interface only.
-        json_format: Show state in json format.
         kernel_only: Show kernel network state only.
         running_config: Show running configuration only.
-        show_secrets: Show secrets (hidden by default).
 
     Returns:
         The network state as a string (JSON if json_format is True).
@@ -37,8 +33,6 @@ def nmstatectl_show(
             show_args["kernel_only"] = True
         if running_config:
             show_args["running_config_only"] = True
-        if show_secrets:
-            show_args["show_secrets"] = True
 
         net_state = libnmstate.show(**show_args)
 
@@ -56,13 +50,7 @@ def nmstatectl_show(
             if not net_state.get(Interface.KEY):
                 return f"Error: Could not retrieve state for interface '{ifname}'."
 
-
-        if json_format:
-            return json.dumps(net_state, indent=2)
-        else:
-            # For non-JSON output, we'll use json.dumps for readability,
-            # but you could implement a more "pretty" text formatter if needed.
-            return json.dumps(net_state, indent=2)
+        return json.dumps(net_state, indent=2)
 
     except Exception as e:
         return f"Error showing network state: {e}"
@@ -87,6 +75,23 @@ def nmstatectl_apply(
     except Exception as e:
         print(f"Error applying network state: {e}")
 
+@mcp.tool()
+def nmstatectl_format(
+    state_content: str,
+) -> str:
+    """
+    format state_content into correct yaml and return it.
+    Or return error if not possible.
+    """
+    try:
+        data = yaml.safe_load(state_content)
+        formatted_state = libnmstate.PrettyState(data)
+        return formatted_state.yaml
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    except Exception as e:
+        print(f"Error formatting network state: {e}")
 
 # This block ensures the server runs when the script is executed
 if __name__ == "__main__":
