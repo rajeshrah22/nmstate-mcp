@@ -71,9 +71,10 @@ def nmstatectl_apply(
     try:
         data = yaml.safe_load(state_content)
         libnmstate.apply(data)
+        return "success"
 
     except Exception as e:
-        print(f"Error applying network state: {e}")
+        return f"Error applying network state: {e}"
 
 @mcp.tool()
 def nmstatectl_format(
@@ -88,10 +89,7 @@ def nmstatectl_format(
         formatted_state = libnmstate.PrettyState(data)
         return formatted_state.yaml
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    except Exception as e:
-        print(f"Error formatting network state: {e}")
+        return f"Error formatting network state: {e}"
 
 # This block ensures the server runs when the script is executed
 if __name__ == "__main__":
