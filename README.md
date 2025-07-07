@@ -5,12 +5,18 @@
 !! WORK IN PROGRESS !!
 
 A mcp server implementation that works with the MCP SuperAssistant Chrome browser extension to enable any web based LLM chat API to call local nmstate tools using MCP.
+Can also be used with Claude Desktop and Cursor.
+
+The vision is to make network management easier with the power of LLMs and MCP.
+Please submit issues with ideas :)
+
+The current code is just prototyping. This should probably be re-written with more thoughtful coding.
 
 ### Prerequisites
 
 * `npm`
 * `python` (version 3.8+)
-* `pip`
+* uv
 * python3-libnmstate
 
 ## Getting Started
@@ -46,6 +52,15 @@ This will also run the nmstate mcp server implementation. See `mcpconfig.json`.
 ```bash
 npx @srbhptl39/mcp-superassistant-proxy@latest --config ./mcpconfig.json
 ```
+
+### Command to run the server
+
+```bash
+uv run --directory <path to project directory> main.py
+
+```
+
+You will not need to manually activate the python virtual environment with this command.
 
 ### Prerequisites
 
