@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "nmstate-mcp": {
-      "command": "python",
+      "command": "uv",
       "args": [
+        "run",
+        "--project",
+        "~/projects/nmstate-mcp",
         "main.py"
       ]
     }
