@@ -16,8 +16,8 @@ The current code is just prototyping. This should probably be re-written with mo
 
 * `npm`
 * `python` (version 3.8+)
-* uv
-* python3-libnmstate
+* `uv`
+* `python3-libnmstate`
 
 ## Getting Started
 
@@ -45,14 +45,6 @@ source .venv/bin/activate
 uv sync
 ```
 
-### Run the proxy server
-
-This will also run the nmstate mcp server implementation. See `mcpconfig.json`.
-
-```bash
-npx @srbhptl39/mcp-superassistant-proxy@latest --config ./mcpconfig.json
-```
-
 ### Command to run the server
 
 ```bash
@@ -60,13 +52,40 @@ uv run --directory <path to project directory> main.py
 
 ```
 
+or if you are in the project directory:
+
+```bash
+uv run main.py
+
+```
+
 You will not need to manually activate the python virtual environment with this command.
 
-### Prerequisites
+### Configure the MCP client
 
-List any software, libraries, or dependencies that need to be installed before running the project.
+Claude Desktop and Cursor, and potentially others support this "mcpServers" format:
 
-* `npm`
-* `python` (version 3.8+)
-* `pip`
-* python3-libnmstate
+```
+{
+  "mcpServers": {
+    "nmstate-mcp": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "<PATH TO YOUR PROJECT>",
+        "main.py"
+      ]
+    },
+  }
+}
+```
+
+### For MCP SuperAssistant: Run the proxy server
+
+This will also run the nmstate mcp server implementation. See `mcpconfig.json`, and please edit it to reflect your directory setup.
+UV run documentation: [docs.astral.sh/uv/reference/cli/#uv-run](docs.astral.sh/uv/reference/cli/#uv-run)
+
+```bash
+npx @srbhptl39/mcp-superassistant-proxy@latest --config ./mcpconfig.json
+```
