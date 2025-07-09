@@ -4,8 +4,8 @@
 
 !! WORK IN PROGRESS !!
 
-A mcp server implementation that works with the MCP SuperAssistant Chrome browser extension to enable any web based LLM chat API to call local nmstate tools using MCP.
-Can also be used with Claude Desktop and Cursor.
+A mcp server implementation that works with the **MCP SuperAssistant** Chrome browser extension to enable any web based LLM chat API to call local nmstate tools using MCP.
+Can also be used with **Claude Desktop and Cursor**.
 
 The vision is to make network management easier with the power of LLMs and MCP.
 Please submit issues with ideas :)
