@@ -3,12 +3,23 @@ import yaml
 import libnmstate
 import subprocess
 import time
+import tempfile
+import os
+import shutil
+from pathlib import Path
 from libnmstate.schema import Interface
 from mcp.server.fastmcp import FastMCP
-from typing import Literal
+from typing import Literal, Dict, List, Optional
 
 # Create a named MCP server
 mcp = FastMCP("Nmstate Network Manager")
+
+# Global configuration for remote hosts
+REMOTE_HOSTS_CONFIG = {
+    "inventory_file": "inventory.yaml",  # User-provided inventory file
+    "playbook_dir": "playbooks",
+    "vars_dir": "vars"
+}
 
 def _run_connectivity_test(
         target: str, 
@@ -81,6 +92,114 @@ def _run_dns_test(
             "success": False,
             "error": str(e)
         }
+
+def _create_playbook(action: str) -> str:
+    """Create Ansible playbook for nmstatectl operations"""
+    
+    playbooks = {
+        "show": [
+            {
+                "name": "Show network state",
+                "hosts": "all",
+                "tasks": [
+                    {
+                        "name": "Run nmstatectl show",
+                        "ansible.builtin.command": "nmstatectl show --json",
+                        "register": "nmstate_output"
+                    },
+                    {
+                        "name": "Display network state",
+                        "ansible.builtin.debug": {
+                            "var": "nmstate_output.stdout"
+                        }
+                    }
+                ]
+            }
+        ],
+        "apply": [
+            {
+                "name": "Apply network state using linux-system-roles.network",
+                "hosts": "all",
+                "become": "true",
+                "vars": {
+                    "network_state": "{{ nmstate_config }}"
+                },
+                "tasks": [
+                    {
+                        "name": "Apply network configuration using network role",
+                        "ansible.builtin.include_role": {
+                            "name": "linux-system-roles.network"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    
+    playbook = playbooks.get(action)
+    playbook_content = yaml.dump(playbook, default_flow_style=False)
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as playbook_file:
+        playbook_file.write(playbook_content)
+        playbook_path = playbook_file.name
+    
+    return playbook_path
+
+def _run_ansible_playbook(playbook_path: str, host: str | None = None, extra_vars: Dict = None) -> Dict:
+    """Run Ansible playbook with given variables"""
+    
+    # _ensure_directories()
+    
+    vars_file = None
+    if extra_vars:
+        vars_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+        yaml.dump(extra_vars, vars_file)
+        vars_file.close()
+    
+    try:
+        # Build ansible-playbook command
+        cmd = [
+            "ansible-playbook",
+            "-i", REMOTE_HOSTS_CONFIG['inventory_file'],
+            playbook_path,
+            "-v"  # verbose output
+        ]
+        
+        if host:
+            cmd.extend(["--limit", f"{host}"])
+        if vars_file:
+            cmd.extend(["--extra-vars", f"@{vars_file.name}"])
+
+        print(cmd)
+        
+        # Run the playbook
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minutes timeout
+        )
+
+        print(result.stdout)
+        
+        return {
+            "success": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+    finally:
+        for temp_file in [playbook_path]:
+            if os.path.exists(temp_file):
+                os.unlink(temp_file)
+        if vars_file and os.path.exists(vars_file.name):
+            os.unlink(vars_file.name)
 
 @mcp.tool()
 def nmstatectl_show(
@@ -1274,6 +1393,167 @@ def nmstatectl_commit() -> str:
         return "success"
     except Exception as e:
         return f"Error commiting back network state"
+
+@mcp.tool()
+def validate_inventory_file(
+    inventory_file: str = "inventory.yaml"
+) -> str:
+    """
+    Validate that the inventory file exists and is readable.
+    
+    Args:
+        inventory_file: Path to the inventory file to validate
+        
+    Returns:
+        Validation status
+    """
+    try:
+        # Update the inventory file path
+        REMOTE_HOSTS_CONFIG["inventory_file"] = inventory_file
+        
+        # Check if file exists
+        if not os.path.exists(inventory_file):
+            return f"Error: Inventory file not found at {inventory_file}. Please create it first."
+        
+        # Try to read and parse the inventory file
+        with open(inventory_file, 'r') as f:
+            inventory_content = f.read()
+        
+        # Validate YAML format
+        try:
+            inventory_data = yaml.safe_load(inventory_content)
+        except yaml.YAMLError as e:
+            return f"Error: Invalid YAML in inventory file: {e}"
+        
+        # Basic validation - check if it has expected structure
+        if not isinstance(inventory_data, dict):
+            return "Error: Inventory file should contain a dictionary structure"
+        
+        return f"✅ Inventory file validated successfully: {inventory_file}\n" \
+               f"   Use this file for remote operations"
+        
+    except Exception as e:
+        return f"Error validating inventory file: {e}"
+
+@mcp.tool()
+def remote_nmstatectl_show(
+    target_host: str,
+) -> str:
+    """
+    Show network state on remote hosts using Ansible.
+    
+    Args:
+        target_host: ansible label for name of host
+        
+    Returns:
+        Network state from remote hosts
+    """
+    try:
+        if not os.path.exists(REMOTE_HOSTS_CONFIG["inventory_file"]):
+            return "Error: No remote hosts configured. Use configure_remote_hosts first."
+        
+        # Read inventory to get configured hosts
+        with open(REMOTE_HOSTS_CONFIG["inventory_file"], 'r') as f:
+            inventory_content = f.read()
+        
+        playbook_path = _create_playbook("show")
+        
+        # Run playbook
+        result = _run_ansible_playbook(playbook_path, target_host, None)
+        
+        if result["success"]:
+            return f"Remote show completed successfully:\n{result['stdout']}"
+        else:
+            return f"Error running remote show: {result.get('stderr', result.get('error', 'Unknown error'))}"
+            
+    except Exception as e:
+        return f"Error showing remote network state: {e}"
+
+@mcp.tool()
+def remote_nmstatectl_apply(
+    state_content: str,
+    target_host: str
+) -> str:
+    """
+    Apply network state on remote hosts using linux-system-roles.network role.
+    
+    Args:
+        state_content: The network state content (YAML string in nmstate format)
+        target_hosts: host name to target
+        
+    Returns:
+        Application result from remote hosts
+    """
+    try:
+        if not os.path.exists(REMOTE_HOSTS_CONFIG["inventory_file"]):
+            return "Error: No remote hosts configured. Use configure_remote_hosts first."
+        
+        # Parse the state content to ensure it's valid YAML
+        try:
+            state_data = yaml.safe_load(state_content)
+        except yaml.YAMLError as e:
+            return f"Error: Invalid YAML in state_content: {e}"
+        
+        # Create apply playbook with state content
+        extra_vars = {
+            "nmstate_config": state_data
+        }
+        
+        playbook_content = _create_playbook("apply")
+        
+        # Run playbook
+        result = _run_ansible_playbook(playbook_content, target_host, extra_vars)
+        
+        if result["success"]:
+            return f"Remote apply completed successfully:\n{result['stdout']}"
+        else:
+            return f"Error running remote apply: {result.get('stderr', result.get('error', 'Unknown error'))}"
+            
+    except Exception as e:
+        return f"Error applying remote network state: {e}"
+
+
+@mcp.tool()
+def show_remote_inventory(
+    inventory_file: str | None = None
+) -> str:
+    """
+    Show current remote host inventory configuration.
+    
+    Args:
+        inventory_file: Path to inventory file (uses default if not provided)
+    
+    Returns:
+        Current inventory configuration
+    """
+    try:
+        # Use provided inventory file or default
+        if inventory_file:
+            inv_file = inventory_file
+        else:
+            inv_file = REMOTE_HOSTS_CONFIG["inventory_file"]
+        
+        if not os.path.exists(inv_file):
+            return f"No inventory file found at {inv_file}. Please create it first.\n" \
+                   f"See the documentation for inventory file guidelines."
+        
+        with open(inv_file, 'r') as f:
+            inventory_content = f.read()
+        
+        # Parse and analyze inventory
+        try:
+            inventory_data = yaml.safe_load(inventory_content)
+            
+            return f"   Current inventory file: {inv_file}\n" \
+                   f"   Content:\n" \
+                   f"{'='*50}\n" \
+                   f"{inventory_content}"
+        except yaml.YAMLError as e:
+            return f"Error parsing inventory file: {e}\n" \
+                   f"Raw content:\n{inventory_content}"
+        
+    except Exception as e:
+        return f"Error reading inventory: {e}"
 
 # This block ensures the server runs when the script is executed
 if __name__ == "__main__":
