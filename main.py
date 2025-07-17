@@ -7,19 +7,34 @@ import tempfile
 import os
 import shutil
 from pathlib import Path
+from datetime import datetime
 from libnmstate.schema import Interface
 from mcp.server.fastmcp import FastMCP
 from typing import Literal, Dict, List, Optional
 
-# Create a named MCP server
 mcp = FastMCP("Nmstate Network Manager")
 
-# Global configuration for remote hosts
-REMOTE_HOSTS_CONFIG = {
-    "inventory_file": "inventory.yaml",  # User-provided inventory file
-    "playbook_dir": "playbooks",
-    "vars_dir": "vars"
-}
+def _get_config():
+    """Get configuration using ~/.nmstate-mcp as base directory"""
+    nmstate_dir = Path.home() / ".nmstate-mcp"
+    return {
+        "inventory_file": str(nmstate_dir / "inventory.yaml"),
+        "playbook_dir": str(nmstate_dir / "playbooks"),
+        "vars_dir": str(nmstate_dir / "vars"),
+        "base_dir": str(nmstate_dir)
+    }
+
+REMOTE_HOSTS_CONFIG = _get_config()
+
+def _ensure_directories():
+    """Ensure required directories exist"""
+    for dir_name in [REMOTE_HOSTS_CONFIG["playbook_dir"], REMOTE_HOSTS_CONFIG["vars_dir"]]:
+        os.makedirs(dir_name, exist_ok=True)
+
+def _generate_unique_filename(prefix: str, extension: str = ".yaml") -> str:
+    """Generate a unique filename with timestamp"""
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return f"{prefix}_{timestamp}{extension}"
 
 def _run_connectivity_test(
         target: str, 
@@ -93,7 +108,7 @@ def _run_dns_test(
             "error": str(e)
         }
 
-def _create_playbook(action: str) -> str:
+def _get_playbook(action: str) -> str:
     """Create Ansible playbook for nmstatectl operations"""
     
     playbooks = {
@@ -139,45 +154,52 @@ def _create_playbook(action: str) -> str:
     playbook = playbooks.get(action)
     playbook_content = yaml.dump(playbook, default_flow_style=False)
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as playbook_file:
+    _ensure_directories()
+    
+    playbook_filename = f"playbook_{action}.yaml"
+    playbook_path = os.path.join(REMOTE_HOSTS_CONFIG["playbook_dir"], playbook_filename)
+    
+    with open(playbook_path, 'w') as playbook_file:
         playbook_file.write(playbook_content)
-        playbook_path = playbook_file.name
     
     return playbook_path
 
-def _run_ansible_playbook(playbook_path: str, host: str | None = None, extra_vars: Dict = None) -> Dict:
+def _run_ansible_playbook(playbook_path: str, host: str | None = None, extra_vars: Optional[Dict] = None) -> Dict:
     """Run Ansible playbook with given variables"""
     
-    # _ensure_directories()
+    if extra_vars is None:
+        extra_vars = {}
     
-    vars_file = None
+    _ensure_directories()
+    
+    vars_file_path = None
     if extra_vars:
-        vars_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
-        yaml.dump(extra_vars, vars_file)
-        vars_file.close()
+        unique_vars_filename = _generate_unique_filename("vars")
+        vars_file_path = os.path.join(REMOTE_HOSTS_CONFIG["vars_dir"], unique_vars_filename)
+        
+        with open(vars_file_path, 'w') as vars_file:
+            yaml.dump(extra_vars, vars_file)
     
     try:
-        # Build ansible-playbook command
         cmd = [
             "ansible-playbook",
             "-i", REMOTE_HOSTS_CONFIG['inventory_file'],
             playbook_path,
-            "-v"  # verbose output
+            "-v"
         ]
         
         if host:
             cmd.extend(["--limit", f"{host}"])
-        if vars_file:
-            cmd.extend(["--extra-vars", f"@{vars_file.name}"])
+        if vars_file_path:
+            cmd.extend(["--extra-vars", f"@{vars_file_path}"])
 
         print(cmd)
         
-        # Run the playbook
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=300  # 5 minutes timeout
+            timeout=300
         )
 
         print(result.stdout)
@@ -195,11 +217,7 @@ def _run_ansible_playbook(playbook_path: str, host: str | None = None, extra_var
             "error": str(e)
         }
     finally:
-        for temp_file in [playbook_path]:
-            if os.path.exists(temp_file):
-                os.unlink(temp_file)
-        if vars_file and os.path.exists(vars_file.name):
-            os.unlink(vars_file.name)
+        pass
 
 @mcp.tool()
 def nmstatectl_show(
@@ -1394,46 +1412,6 @@ def nmstatectl_commit() -> str:
     except Exception as e:
         return f"Error commiting back network state"
 
-@mcp.tool()
-def validate_inventory_file(
-    inventory_file: str = "inventory.yaml"
-) -> str:
-    """
-    Validate that the inventory file exists and is readable.
-    
-    Args:
-        inventory_file: Path to the inventory file to validate
-        
-    Returns:
-        Validation status
-    """
-    try:
-        # Update the inventory file path
-        REMOTE_HOSTS_CONFIG["inventory_file"] = inventory_file
-        
-        # Check if file exists
-        if not os.path.exists(inventory_file):
-            return f"Error: Inventory file not found at {inventory_file}. Please create it first."
-        
-        # Try to read and parse the inventory file
-        with open(inventory_file, 'r') as f:
-            inventory_content = f.read()
-        
-        # Validate YAML format
-        try:
-            inventory_data = yaml.safe_load(inventory_content)
-        except yaml.YAMLError as e:
-            return f"Error: Invalid YAML in inventory file: {e}"
-        
-        # Basic validation - check if it has expected structure
-        if not isinstance(inventory_data, dict):
-            return "Error: Inventory file should contain a dictionary structure"
-        
-        return f"✅ Inventory file validated successfully: {inventory_file}\n" \
-               f"   Use this file for remote operations"
-        
-    except Exception as e:
-        return f"Error validating inventory file: {e}"
 
 @mcp.tool()
 def remote_nmstatectl_show(
@@ -1456,10 +1434,10 @@ def remote_nmstatectl_show(
         with open(REMOTE_HOSTS_CONFIG["inventory_file"], 'r') as f:
             inventory_content = f.read()
         
-        playbook_path = _create_playbook("show")
+        playbook_path = _get_playbook("show")
         
         # Run playbook
-        result = _run_ansible_playbook(playbook_path, target_host, None)
+        result = _run_ansible_playbook(playbook_path, target_host, {})
         
         if result["success"]:
             return f"Remote show completed successfully:\n{result['stdout']}"
@@ -1499,7 +1477,7 @@ def remote_nmstatectl_apply(
             "nmstate_config": state_data
         }
         
-        playbook_content = _create_playbook("apply")
+        playbook_content = _get_playbook("apply")
         
         # Run playbook
         result = _run_ansible_playbook(playbook_content, target_host, extra_vars)
@@ -1521,7 +1499,7 @@ def show_remote_inventory(
     Show current remote host inventory configuration.
     
     Args:
-        inventory_file: Path to inventory file (uses default if not provided)
+        inventory_file: Path to inventory file (uses ~/.nmstate-mcp/inventory.yaml if not provided)
     
     Returns:
         Current inventory configuration
