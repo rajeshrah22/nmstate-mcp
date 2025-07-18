@@ -37,7 +37,7 @@ def _generate_unique_filename(prefix: str, extension: str = ".yaml") -> str:
     return f"{prefix}_{timestamp}{extension}"
 
 def _run_connectivity_test(
-        target: str, 
+        target: str,
         interface: str | None = None,
         timeout: int = 10
 ) -> dict:
@@ -76,7 +76,7 @@ def _run_connectivity_test(
       }
 
 def _run_dns_test(
-        domain: str, 
+        domain: str,
         timeout: int = 10
 ) -> dict:
     """Run DNS resolution test"""
@@ -86,7 +86,7 @@ def _run_dns_test(
         result = subprocess.run(
             ["nslookup", domain],
             capture_output=True,
-            text=True, 
+            text=True,
             timeout=timeout
         )
         duration = time.time() - start_time
@@ -110,13 +110,21 @@ def _run_dns_test(
 
 def _get_playbook(action: str) -> str:
     """Create Ansible playbook for nmstatectl operations"""
-    
+
     playbooks = {
         "show": [
             {
                 "name": "Show network state",
                 "hosts": "all",
+                "become": "yes",
                 "tasks": [
+                    {
+                        "name": "Install nmstatectl",
+                        "ansible.builtin.dnf": {
+                            "name": "nmstate",
+                            "state": "present"
+                        }
+                    },
                     {
                         "name": "Run nmstatectl show",
                         "ansible.builtin.command": "nmstatectl show --json",
@@ -150,36 +158,36 @@ def _get_playbook(action: str) -> str:
             }
         ]
     }
-    
+
     playbook = playbooks.get(action)
     playbook_content = yaml.dump(playbook, default_flow_style=False)
 
     _ensure_directories()
-    
+
     playbook_filename = f"playbook_{action}.yaml"
     playbook_path = os.path.join(REMOTE_HOSTS_CONFIG["playbook_dir"], playbook_filename)
-    
+
     with open(playbook_path, 'w') as playbook_file:
         playbook_file.write(playbook_content)
-    
+
     return playbook_path
 
 def _run_ansible_playbook(playbook_path: str, host: str | None = None, extra_vars: Optional[Dict] = None) -> Dict:
     """Run Ansible playbook with given variables"""
-    
+
     if extra_vars is None:
         extra_vars = {}
-    
+
     _ensure_directories()
-    
+
     vars_file_path = None
     if extra_vars:
         unique_vars_filename = _generate_unique_filename("vars")
         vars_file_path = os.path.join(REMOTE_HOSTS_CONFIG["vars_dir"], unique_vars_filename)
-        
+
         with open(vars_file_path, 'w') as vars_file:
             yaml.dump(extra_vars, vars_file)
-    
+
     try:
         cmd = [
             "ansible-playbook",
@@ -187,14 +195,14 @@ def _run_ansible_playbook(playbook_path: str, host: str | None = None, extra_var
             playbook_path,
             "-v"
         ]
-        
+
         if host:
             cmd.extend(["--limit", f"{host}"])
         if vars_file_path:
             cmd.extend(["--extra-vars", f"@{vars_file_path}"])
 
         print(cmd)
-        
+
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -203,14 +211,14 @@ def _run_ansible_playbook(playbook_path: str, host: str | None = None, extra_var
         )
 
         print(result.stdout)
-        
+
         return {
             "success": result.returncode == 0,
             "stdout": result.stdout,
             "stderr": result.stderr,
             "returncode": result.returncode
         }
-        
+
     except Exception as e:
         return {
             "success": False,
@@ -256,7 +264,7 @@ def nmstatectl_show(
             if not filtered_interfaces:
                 return f"Error: Interface '{ifname}' not found."
             net_state[Interface.KEY] = filtered_interfaces
-            
+
             # If the only thing left is an empty interfaces list, return an error
             if not net_state.get(Interface.KEY):
                 return f"Error: Could not retrieve state for interface '{ifname}'."
@@ -1419,31 +1427,31 @@ def remote_nmstatectl_show(
 ) -> str:
     """
     Show network state on remote hosts using Ansible.
-    
+
     Args:
         target_host: ansible label for name of host
-        
+
     Returns:
         Network state from remote hosts
     """
     try:
         if not os.path.exists(REMOTE_HOSTS_CONFIG["inventory_file"]):
             return "Error: No remote hosts configured. Use configure_remote_hosts first."
-        
+
         # Read inventory to get configured hosts
         with open(REMOTE_HOSTS_CONFIG["inventory_file"], 'r') as f:
             inventory_content = f.read()
-        
+
         playbook_path = _get_playbook("show")
-        
+
         # Run playbook
         result = _run_ansible_playbook(playbook_path, target_host, {})
-        
+
         if result["success"]:
             return f"Remote show completed successfully:\n{result['stdout']}"
         else:
-            return f"Error running remote show: {result.get('stderr', result.get('error', 'Unknown error'))}"
-            
+            return f"Error or warning running remote show: {result.get('stdout')}"
+
     except Exception as e:
         return f"Error showing remote network state: {e}"
 
@@ -1454,39 +1462,39 @@ def remote_nmstatectl_apply(
 ) -> str:
     """
     Apply network state on remote hosts using linux-system-roles.network role.
-    
+
     Args:
         state_content: The network state content (YAML string in nmstate format)
         target_hosts: host name to target
-        
+
     Returns:
         Application result from remote hosts
     """
     try:
         if not os.path.exists(REMOTE_HOSTS_CONFIG["inventory_file"]):
             return "Error: No remote hosts configured. Use configure_remote_hosts first."
-        
+
         # Parse the state content to ensure it's valid YAML
         try:
             state_data = yaml.safe_load(state_content)
         except yaml.YAMLError as e:
             return f"Error: Invalid YAML in state_content: {e}"
-        
+
         # Create apply playbook with state content
         extra_vars = {
             "nmstate_config": state_data
         }
-        
+
         playbook_content = _get_playbook("apply")
-        
+
         # Run playbook
         result = _run_ansible_playbook(playbook_content, target_host, extra_vars)
-        
+
         if result["success"]:
             return f"Remote apply completed successfully:\n{result['stdout']}"
         else:
-            return f"Error running remote apply: {result.get('stderr', result.get('error', 'Unknown error'))}"
-            
+            return f"Error or warning running remote apply: {result.get('stdout')}"
+
     except Exception as e:
         return f"Error applying remote network state: {e}"
 
@@ -1497,10 +1505,10 @@ def show_remote_inventory(
 ) -> str:
     """
     Show current remote host inventory configuration.
-    
+
     Args:
         inventory_file: Path to inventory file (uses ~/.nmstate-mcp/inventory.yaml if not provided)
-    
+
     Returns:
         Current inventory configuration
     """
@@ -1510,18 +1518,18 @@ def show_remote_inventory(
             inv_file = inventory_file
         else:
             inv_file = REMOTE_HOSTS_CONFIG["inventory_file"]
-        
+
         if not os.path.exists(inv_file):
             return f"No inventory file found at {inv_file}. Please create it first.\n" \
                    f"See the documentation for inventory file guidelines."
-        
+
         with open(inv_file, 'r') as f:
             inventory_content = f.read()
-        
+
         # Parse and analyze inventory
         try:
             inventory_data = yaml.safe_load(inventory_content)
-            
+
             return f"   Current inventory file: {inv_file}\n" \
                    f"   Content:\n" \
                    f"{'='*50}\n" \
@@ -1529,7 +1537,7 @@ def show_remote_inventory(
         except yaml.YAMLError as e:
             return f"Error parsing inventory file: {e}\n" \
                    f"Raw content:\n{inventory_content}"
-        
+
     except Exception as e:
         return f"Error reading inventory: {e}"
 
