@@ -1,13 +1,13 @@
 Name:           nmstate-mcp
 Version:        0.1.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        MCP server for nmstate network management
 
 License:        MIT
 
 # Disable debug package generation (no compiled code)
 %global debug_package %{nil}
-URL:            https://github.com/yourusername/nmstate-mcp
+URL:            https://github.com/rajeshrah22/nmstate-mcp
 Source0:        %{name}-%{version}.tar.gz
 
 # Runtime dependencies
